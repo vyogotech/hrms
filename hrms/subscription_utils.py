@@ -70,13 +70,13 @@ def subscription_updated(app: str, plan: str):
 
 
 def update_erpnext_access():
-	"""
-	ignores if user has no hrms subscription
-	enables erpnext workspaces and roles if user has subscribed to hrms and erpnext
-	disables erpnext workspaces and roles if user has subscribed to hrms but not erpnext
-	"""
-	if not frappe.utils.get_url().endswith(".frappehr.com"):
-		return
+	# """
+	# ignores if user has no hrms subscription
+	# enables erpnext workspaces and roles if user has subscribed to hrms and erpnext
+	# disables erpnext workspaces and roles if user has subscribed to hrms but not erpnext
+	# """
+	# if not frappe.utils.get_url().endswith(".frappehr.com"):
+	# 	return
 
 	update_erpnext_workspaces(True)
 	update_erpnext_roles(True)
