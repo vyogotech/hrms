@@ -22,6 +22,7 @@ class SalaryStructureAssignment(Document):
 
 	def validate(self):
 		self.validate_dates()
+		self.validate_company()
 		self.validate_income_tax_slab()
 		self.set_payroll_payable_account()
 
@@ -58,7 +59,9 @@ class SalaryStructureAssignment(Document):
 				"Salary Structure Assignment",
 				{"employee": self.employee, "from_date": self.from_date, "docstatus": 1},
 			):
-				frappe.throw(_("Salary Structure Assignment for Employee already exists"), DuplicateAssignment)
+				frappe.throw(
+					_("Salary Structure Assignment for Employee already exists"), DuplicateAssignment
+				)
 
 			if joining_date and getdate(self.from_date) < joining_date:
 				frappe.throw(
@@ -75,13 +78,22 @@ class SalaryStructureAssignment(Document):
 					)
 				)
 
+	def validate_company(self):
+		salary_structure_company = frappe.db.get_value(
+			"Salary Structure", self.salary_structure, "company", cache=True
+		)
+		if self.company != salary_structure_company:
+			frappe.throw(
+				_("Salary Structure {0} does not belong to company {1}").format(
+					frappe.bold(self.salary_structure), frappe.bold(self.company)
+				)
+			)
+
 	def validate_income_tax_slab(self):
 		if not self.income_tax_slab:
 			return
 
-		income_tax_slab_currency = frappe.db.get_value(
-			"Income Tax Slab", self.income_tax_slab, "currency"
-		)
+		income_tax_slab_currency = frappe.db.get_value("Income Tax Slab", self.income_tax_slab, "currency")
 		if self.currency != income_tax_slab_currency:
 			frappe.throw(
 				_("Currency of selected Income Tax Slab should be {0} instead of {1}").format(
@@ -154,9 +166,7 @@ class SalaryStructureAssignment(Document):
 	def have_salary_slips(self):
 		"""returns True if salary structure assignment has salary slips else False"""
 
-		salary_slip = frappe.db.get_value(
-			"Salary Slip", filters={"employee": self.employee, "docstatus": 1}
-		)
+		salary_slip = frappe.db.get_value("Salary Slip", filters={"employee": self.employee, "docstatus": 1})
 
 		if salary_slip:
 			return True
@@ -198,9 +208,7 @@ def get_assigned_salary_structure(employee, on_date):
 
 @frappe.whitelist()
 def get_employee_currency(employee):
-	employee_currency = frappe.db.get_value(
-		"Salary Structure Assignment", {"employee": employee}, "currency"
-	)
+	employee_currency = frappe.db.get_value("Salary Structure Assignment", {"employee": employee}, "currency")
 	if not employee_currency:
 		frappe.throw(
 			_("There is no Salary Structure assigned to {0}. First assign a Salary Stucture.").format(

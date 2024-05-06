@@ -1,7 +1,5 @@
 # Copyright (c) 2018, Frappe Technologies Pvt. Ltd. and Contributors
 # See license.txt
-
-import unittest
 from datetime import datetime, timedelta
 
 import frappe
@@ -13,6 +11,7 @@ from erpnext.setup.doctype.holiday_list.test_holiday_list import set_holiday_lis
 
 from hrms.hr.doctype.leave_application.test_leave_application import get_first_sunday
 from hrms.payroll.doctype.salary_slip.test_salary_slip import make_holiday_list
+from hrms.tests.test_utils import add_date_to_holiday_list
 
 
 class TestShiftType(FrappeTestCase):
@@ -46,9 +45,9 @@ class TestShiftType(FrappeTestCase):
 		shift_type.process_auto_attendance()
 
 		attendance = frappe.db.get_value(
-			"Attendance", {"shift": shift_type.name}, ["status", "name"], as_dict=True
+			"Attendance", {"employee": employee, "shift": shift_type.name}, "status"
 		)
-		self.assertEqual(attendance.status, "Present")
+		self.assertEqual(attendance, "Present")
 
 	def test_mark_attendance_with_different_shift_start_time(self):
 		"""Tests whether attendance is marked correctly if shift configuration is changed midway"""
@@ -61,21 +60,53 @@ class TestShiftType(FrappeTestCase):
 		make_shift_assignment(shift_type.name, employee, date)
 
 		timestamp = datetime.combine(date, get_time("08:00:00"))
-		log_in = make_checkin(employee, timestamp)
+		# log in
+		make_checkin(employee, timestamp)
 
 		# change config before adding OUT log
 		shift_type.begin_check_in_before_shift_start_time = 120
 		shift_type.save()
 
 		timestamp = datetime.combine(date, get_time("12:00:00"))
-		log_out = make_checkin(employee, timestamp)
+		# log out
+		make_checkin(employee, timestamp)
 
 		shift_type.process_auto_attendance()
 
 		attendance = frappe.db.get_value(
-			"Attendance", {"shift": shift_type.name}, ["status", "name"], as_dict=True
+			"Attendance", {"employee": employee, "shift": shift_type.name}, "status"
+		)
+		self.assertEqual(attendance, "Present")
+
+	def test_attendance_date_for_different_start_and_actual_start_date(self):
+		from hrms.hr.doctype.employee_checkin.test_employee_checkin import make_checkin
+
+		employee = make_employee("test_employee_checkin@example.com", company="_Test Company")
+		shift_type = setup_shift_type(shift_type="Midnight Shift", start_time="00:30:00", end_time="10:00:00")
+
+		date = getdate()
+		make_shift_assignment(shift_type.name, employee, date, date)
+
+		timestamp = datetime.combine(date, get_time("00:30:00"))
+		# log in
+		make_checkin(employee, timestamp)
+
+		timestamp = datetime.combine(date, get_time("10:00:00"))
+		# log out
+		make_checkin(employee, timestamp)
+
+		shift_type.process_auto_attendance()
+
+		# even though actual start time starts on the prev date,
+		# attendance date should be the current date (start date of the shift)
+		attendance = frappe.db.get_value(
+			"Attendance",
+			{"shift": shift_type.name},
+			["attendance_date", "status"],
+			as_dict=True,
 		)
 		self.assertEqual(attendance.status, "Present")
+		self.assertEqual(attendance.attendance_date, date)
 
 	def test_entry_and_exit_grace(self):
 		from hrms.hr.doctype.employee_checkin.test_employee_checkin import make_checkin
@@ -105,7 +136,7 @@ class TestShiftType(FrappeTestCase):
 
 		attendance = frappe.db.get_value(
 			"Attendance",
-			{"shift": shift_type.name},
+			{"shift": shift_type.name, "employee": employee},
 			["status", "name", "late_entry", "early_exit"],
 			as_dict=True,
 		)
@@ -222,19 +253,9 @@ class TestShiftType(FrappeTestCase):
 
 		# add current date as holiday
 		date = getdate()
-		holiday_list = frappe.get_doc("Holiday List", self.holiday_list)
-		holiday_list.append(
-			"holidays",
-			{
-				"holiday_date": date,
-				"description": "test",
-			},
-		)
-		holiday_list.save()
+		add_date_to_holiday_list(date, self.holiday_list)
 
-		shift_type = setup_shift_type(
-			shift_type="Test Holiday Shift", mark_auto_attendance_on_holidays=True
-		)
+		shift_type = setup_shift_type(shift_type="Test Holiday Shift", mark_auto_attendance_on_holidays=True)
 		shift_type.holiday_list = None
 		shift_type.save()
 
@@ -244,9 +265,9 @@ class TestShiftType(FrappeTestCase):
 
 		# make logs
 		timestamp = datetime.combine(date, get_time("08:00:00"))
-		log = make_checkin(employee, timestamp)
+		make_checkin(employee, timestamp)
 		timestamp = datetime.combine(date, get_time("12:00:00"))
-		log = make_checkin(employee, timestamp)
+		make_checkin(employee, timestamp)
 
 		shift_type.process_auto_attendance()
 
@@ -261,19 +282,9 @@ class TestShiftType(FrappeTestCase):
 
 		# add current date as holiday
 		date = getdate()
-		holiday_list = frappe.get_doc("Holiday List", self.holiday_list)
-		holiday_list.append(
-			"holidays",
-			{
-				"holiday_date": date,
-				"description": "test",
-			},
-		)
-		holiday_list.save()
+		add_date_to_holiday_list(date, self.holiday_list)
 
-		shift_type = setup_shift_type(
-			shift_type="Test Holiday Shift", mark_auto_attendance_on_holidays=False
-		)
+		shift_type = setup_shift_type(shift_type="Test Holiday Shift", mark_auto_attendance_on_holidays=False)
 		shift_type.holiday_list = None
 		shift_type.save()
 
@@ -283,9 +294,9 @@ class TestShiftType(FrappeTestCase):
 
 		# make logs
 		timestamp = datetime.combine(date, get_time("08:00:00"))
-		log = make_checkin(employee, timestamp)
+		make_checkin(employee, timestamp)
 		timestamp = datetime.combine(date, get_time("12:00:00"))
-		log = make_checkin(employee, timestamp)
+		make_checkin(employee, timestamp)
 
 		shift_type.process_auto_attendance()
 
@@ -296,18 +307,111 @@ class TestShiftType(FrappeTestCase):
 
 	def test_mark_absent_for_dates_with_no_attendance(self):
 		employee = make_employee("test_employee_checkin@example.com", company="_Test Company")
-		shift_type = setup_shift_type(shift_type="Test Absent with no Attendance")
+		today = getdate()
+		shift_type = setup_shift_type(
+			shift_type="Test Absent with no Attendance",
+			process_attendance_after=add_days(today, -6),
+			last_sync_of_checkin=f"{today} 15:00:00",
+		)
+		# single day assignment
+		date1 = add_days(today, -5)
+		make_shift_assignment(shift_type.name, employee, date1, date1)
 
-		# absentees are auto-marked one day after to wait for any manual attendance records
-		date = add_days(getdate(), -1)
-		make_shift_assignment(shift_type.name, employee, date)
+		# assignment without end date
+		date2 = add_days(today, -4)
+		make_shift_assignment(shift_type.name, employee, date2)
 
 		shift_type.process_auto_attendance()
+		yesterday = add_days(today, -1)
 
-		attendance = frappe.db.get_value(
-			"Attendance", {"attendance_date": date, "employee": employee}, "status"
+		# absentees are auto-marked one day after shift actual end to wait for any manual attendance records
+		# so all days should be marked as absent except today
+		absent_records = frappe.get_all(
+			"Attendance",
+			{
+				"attendance_date": ["between", [date1, yesterday]],
+				"employee": employee,
+				"status": "Absent",
+			},
 		)
-		self.assertEqual(attendance, "Absent")
+		self.assertEqual(len(absent_records), 5)
+		todays_attendance = frappe.db.get_value(
+			"Attendance", {"attendance_date": today, "employee": employee}
+		)
+		self.assertIsNone(todays_attendance)
+
+	def test_mark_absent_for_dates_with_no_attendance_for_midnight_shift(self):
+		employee = make_employee("test_employee_checkin@example.com", company="_Test Company")
+		today = getdate()
+		shift_type = setup_shift_type(
+			shift_type="Test Absent with no Attendance",
+			start_time="15:00:00",
+			end_time="23:30:00",
+			process_attendance_after=add_days(today, -6),
+			allow_check_out_after_shift_end_time=120,
+			last_sync_of_checkin=f"{today} 15:00:00",
+		)
+		# single day assignment
+		date1 = add_days(today, -5)
+		make_shift_assignment(shift_type.name, employee, date1, date1)
+
+		# assignment without end date
+		date2 = add_days(today, -4)
+		make_shift_assignment(shift_type.name, employee, date2, date2)
+
+		shift_type.process_auto_attendance()
+		absent_records = frappe.get_all(
+			"Attendance",
+			{
+				"attendance_date": ["between", [date1, today]],
+				"employee": employee,
+				"status": "Absent",
+			},
+		)
+		self.assertEqual(len(absent_records), 2)
+
+	def test_do_not_mark_absent_before_shift_actual_end_time(self):
+		"""
+		Tests employee is not marked absent for a shift spanning 2 days
+		before its actual end time
+		"""
+		from hrms.hr.doctype.employee_checkin.test_employee_checkin import make_checkin
+
+		employee = make_employee("test_employee_checkin@example.com", company="_Test Company")
+		curr_date = getdate()
+
+		# this shift's valid checkout period (+60 mins) will be till 00:30:00 today, so it goes beyond a day
+		shift_type = setup_shift_type(shift_type="Test Absent", start_time="15:00:00", end_time="23:30:00")
+		shift_type.last_sync_of_checkin = datetime.combine(curr_date, get_time("00:30:00"))
+		shift_type.save()
+
+		# assign shift for yesterday, actual end time is today at 00:30:00
+		prev_date = add_days(getdate(), -1)
+		make_shift_assignment(shift_type.name, employee, prev_date)
+
+		# make logs
+		timestamp = datetime.combine(prev_date, get_time("15:00:00"))
+		make_checkin(employee, timestamp)
+		timestamp = datetime.combine(prev_date, get_time("23:30:00"))
+		make_checkin(employee, timestamp)
+
+		# last sync of checkin is 00:30:00 and the checkin logs are not applicable for attendance yet
+		# so it should not mark the employee as absent either
+		shift_type.process_auto_attendance()
+		attendance = frappe.db.get_value(
+			"Attendance", {"attendance_date": prev_date, "employee": employee}, "status"
+		)
+		self.assertIsNone(attendance)
+
+		# update last sync
+		shift_type.last_sync_of_checkin = datetime.combine(curr_date, get_time("01:00:00"))
+		shift_type.save()
+		shift_type.process_auto_attendance()
+		# employee marked present considering checkins
+		attendance = frappe.db.get_value(
+			"Attendance", {"attendance_date": prev_date, "employee": employee}, "status"
+		)
+		self.assertEqual(attendance, "Present")
 
 	@set_holiday_list("Salary Slip Test Holiday List", "_Test Company")
 	def test_skip_marking_absent_on_a_holiday(self):
@@ -327,11 +431,12 @@ class TestShiftType(FrappeTestCase):
 		shift_type.process_auto_attendance()
 
 		attendance = frappe.db.get_value(
-			"Attendance", {"attendance_date": first_sunday, "employee": employee}, "status"
+			"Attendance",
+			{"attendance_date": first_sunday, "employee": employee},
 		)
 		self.assertIsNone(attendance)
 
-	def test_skip_marking_absent_for_a_fallback_default_shift(self):
+	def test_skip_absent_marking_for_a_fallback_default_shift(self):
 		"""
 		Tests if an employee is not marked absent for default shift
 		when they have a valid shift assignment of another type.
@@ -341,7 +446,9 @@ class TestShiftType(FrappeTestCase):
 
 		default_shift = setup_shift_type()
 		employee = make_employee(
-			"test_employee_checkin@example.com", company="_Test Company", default_shift=default_shift.name
+			"test_employee_checkin_default@example.com",
+			company="_Test Company",
+			default_shift=default_shift.name,
 		)
 
 		assigned_shift = setup_shift_type(shift_type="Test Absent with no Attendance")
@@ -349,10 +456,12 @@ class TestShiftType(FrappeTestCase):
 		make_shift_assignment(assigned_shift.name, employee, date)
 
 		timestamp = datetime.combine(date, get_time("08:00:00"))
-		log_in = make_checkin(employee, timestamp)
+		# log in
+		make_checkin(employee, timestamp)
 
 		timestamp = datetime.combine(date, get_time("10:00:00"))
-		log_out = make_checkin(employee, timestamp)
+		# log out
+		make_checkin(employee, timestamp)
 
 		default_shift.process_auto_attendance()
 		attendance = frappe.db.get_value(
@@ -365,6 +474,21 @@ class TestShiftType(FrappeTestCase):
 			"Attendance", {"employee": employee, "shift": assigned_shift.name}, "status"
 		)
 		self.assertEqual(attendance, "Present")
+
+	def test_skip_absent_marking_for_inactive_employee(self):
+		from hrms.hr.doctype.employee_checkin.test_employee_checkin import make_checkin
+
+		shift = setup_shift_type()
+		employee = make_employee("test_inactive_employee@example.com", company="_Test Company")
+		date = getdate()
+		make_shift_assignment(shift.name, employee, date)
+
+		# mark employee as Inactive
+		frappe.db.set_value("Employee", employee, "status", "Inactive")
+
+		shift.process_auto_attendance()
+		attendance = frappe.db.get_value("Attendance", {"employee": employee}, "status")
+		self.assertIsNone(attendance)
 
 	def test_get_start_and_end_dates(self):
 		date = getdate()
@@ -386,16 +510,14 @@ class TestShiftType(FrappeTestCase):
 		shift_type.process_auto_attendance()
 
 		# should not mark absent before shift assignment/process attendance after date
-		attendance = frappe.db.get_value(
-			"Attendance", {"attendance_date": doj, "employee": employee}, "name"
-		)
+		attendance = frappe.db.get_value("Attendance", {"attendance_date": doj, "employee": employee}, "name")
 		self.assertIsNone(attendance)
 
 		# mark absent on Relieving Date
 		attendance = frappe.db.get_value(
 			"Attendance", {"attendance_date": relieving_date, "employee": employee}, "status"
 		)
-		self.assertEquals(attendance, "Absent")
+		self.assertEqual(attendance, "Absent")
 
 		# should not mark absent after Relieving Date
 		attendance = frappe.db.get_value(
@@ -476,8 +598,8 @@ def setup_shift_type(**args):
 		{
 			"doctype": "Shift Type",
 			"__newname": args.shift_type or "_Test Shift",
-			"start_time": "08:00:00",
-			"end_time": "12:00:00",
+			"start_time": args.start_time or "08:00:00",
+			"end_time": args.end_time or "12:00:00",
 			"enable_auto_attendance": 1,
 			"determine_check_in_and_check_out": "Alternating entries as IN and OUT during the same shift",
 			"working_hours_calculation_based_on": "First Check-in and Last Check-out",

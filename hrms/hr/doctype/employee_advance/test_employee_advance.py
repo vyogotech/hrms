@@ -1,9 +1,8 @@
 # Copyright (c) 2017, Frappe Technologies Pvt. Ltd. and Contributors
 # See license.txt
 
-import unittest
-
 import frappe
+from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt, nowdate
 
 import erpnext
@@ -24,7 +23,7 @@ from hrms.payroll.doctype.salary_component.test_salary_component import create_s
 from hrms.payroll.doctype.salary_structure.test_salary_structure import make_salary_structure
 
 
-class TestEmployeeAdvance(unittest.TestCase):
+class TestEmployeeAdvance(FrappeTestCase):
 	def setUp(self):
 		frappe.db.delete("Employee Advance")
 
@@ -32,7 +31,7 @@ class TestEmployeeAdvance(unittest.TestCase):
 		employee_name = make_employee("_T@employe.advance")
 		advance = make_employee_advance(employee_name)
 
-		journal_entry = make_payment_entry(advance)
+		journal_entry = make_journal_entry_for_advance(advance)
 		journal_entry.submit()
 
 		advance.reload()
@@ -41,22 +40,22 @@ class TestEmployeeAdvance(unittest.TestCase):
 		self.assertEqual(advance.status, "Paid")
 
 		# try making over payment
-		journal_entry1 = make_payment_entry(advance)
+		journal_entry1 = make_journal_entry_for_advance(advance)
 		self.assertRaises(EmployeeAdvanceOverPayment, journal_entry1.submit)
 
 	def test_paid_amount_on_pe_cancellation(self):
 		employee_name = make_employee("_T@employe.advance")
 		advance = make_employee_advance(employee_name)
 
-		pe = make_payment_entry(advance)
-		pe.submit()
+		journal_entry = make_journal_entry_for_advance(advance)
+		journal_entry.submit()
 
 		advance.reload()
 
 		self.assertEqual(advance.paid_amount, 1000)
 		self.assertEqual(advance.status, "Paid")
 
-		pe.cancel()
+		journal_entry.cancel()
 		advance.reload()
 
 		self.assertEqual(advance.paid_amount, 0)
@@ -74,8 +73,8 @@ class TestEmployeeAdvance(unittest.TestCase):
 		)
 
 		advance = make_employee_advance(claim.employee)
-		pe = make_payment_entry(advance)
-		pe.submit()
+		journal_entry = make_journal_entry_for_advance(advance)
+		journal_entry.submit()
 
 		claim = get_advances_for_claim(claim, advance.name)
 		claim.save()
@@ -103,8 +102,8 @@ class TestEmployeeAdvance(unittest.TestCase):
 		)
 
 		advance = make_employee_advance(claim.employee)
-		pe = make_payment_entry(advance)
-		pe.submit()
+		journal_entry = make_journal_entry_for_advance(advance)
+		journal_entry.submit()
 
 		# PARTLY CLAIMED AND RETURNED status check
 		# 500 Claimed, 500 Returned
@@ -113,8 +112,8 @@ class TestEmployeeAdvance(unittest.TestCase):
 		)
 
 		advance = make_employee_advance(claim.employee)
-		pe = make_payment_entry(advance)
-		pe.submit()
+		journal_entry = make_journal_entry_for_advance(advance)
+		journal_entry.submit()
 
 		claim = get_advances_for_claim(claim, advance.name, amount=500)
 		claim.save()
@@ -162,14 +161,12 @@ class TestEmployeeAdvance(unittest.TestCase):
 	def test_repay_unclaimed_amount_from_salary(self):
 		employee_name = make_employee("_T@employe.advance")
 		advance = make_employee_advance(employee_name, {"repay_unclaimed_amount_from_salary": 1})
-		pe = make_payment_entry(advance)
-		pe.submit()
+		journal_entry = make_journal_entry_for_advance(advance)
+		journal_entry.submit()
 
 		args = {"type": "Deduction"}
 		create_salary_component("Advance Salary - Deduction", **args)
-		make_salary_structure(
-			"Test Additional Salary for Advance Return", "Monthly", employee=employee_name
-		)
+		make_salary_structure("Test Additional Salary for Advance Return", "Monthly", employee=employee_name)
 
 		# additional salary for 700 first
 		advance.reload()
@@ -201,17 +198,99 @@ class TestEmployeeAdvance(unittest.TestCase):
 		self.assertEqual(advance.return_amount, 700)
 		self.assertEqual(advance.status, "Paid")
 
-	def tearDown(self):
-		frappe.db.rollback()
+	def test_payment_entry_against_advance(self):
+		employee_name = make_employee("_T@employee.advance")
+		advance = make_employee_advance(employee_name)
+
+		pe = make_payment_entry(advance, 700)
+		advance.reload()
+		self.assertEqual(advance.status, "Unpaid")
+		self.assertEqual(advance.paid_amount, 700)
+
+		pe = make_payment_entry(advance, 300)
+		advance.reload()
+		self.assertEqual(advance.status, "Paid")
+		self.assertEqual(advance.paid_amount, 1000)
+
+		pe.cancel()
+		advance.reload()
+		self.assertEqual(advance.status, "Unpaid")
+		self.assertEqual(advance.paid_amount, 700)
+
+	def test_precision(self):
+		employee_name = make_employee("_T@employee.advance")
+		advance = make_employee_advance(employee_name)
+		journal_entry = make_journal_entry_for_advance(advance)
+		journal_entry.submit()
+
+		# PARTLY CLAIMED AND RETURNED
+		payable_account = get_payable_account("_Test Company")
+		claim = make_expense_claim(
+			payable_account, 650.35, 619.34, "_Test Company", "Travel Expenses - _TC", do_not_submit=True
+		)
+
+		claim = get_advances_for_claim(claim, advance.name, amount=619.34)
+		claim.save()
+		claim.submit()
+
+		advance.reload()
+		self.assertEqual(advance.status, "Paid")
+
+		entry = make_return_entry(
+			employee=advance.employee,
+			company=advance.company,
+			employee_advance_name=advance.name,
+			return_amount=advance.paid_amount - advance.claimed_amount,
+			advance_account=advance.advance_account,
+			mode_of_payment=advance.mode_of_payment,
+			currency=advance.currency,
+			exchange_rate=advance.exchange_rate,
+		)
+
+		entry = frappe.get_doc(entry)
+		entry.insert()
+		entry.submit()
+
+		advance.reload()
+		# precision is respected
+		self.assertEqual(advance.return_amount, 380.66)
+		self.assertEqual(advance.status, "Partly Claimed and Returned")
+
+	def test_pending_amount(self):
+		employee_name = make_employee("_T@employee.advance")
+
+		advance1 = make_employee_advance(employee_name)
+		make_payment_entry(advance1, 500)
+
+		advance2 = make_employee_advance(employee_name)
+		# 1000 - 500
+		self.assertEqual(advance2.pending_amount, 500)
+		make_payment_entry(advance2, 700)
+
+		advance3 = make_employee_advance(employee_name)
+		# (1000 - 500) + (1000 - 700)
+		self.assertEqual(advance3.pending_amount, 800)
 
 
-def make_payment_entry(advance):
+def make_journal_entry_for_advance(advance):
 	journal_entry = frappe.get_doc(make_bank_entry("Employee Advance", advance.name))
 	journal_entry.cheque_no = "123123"
 	journal_entry.cheque_date = nowdate()
 	journal_entry.save()
 
 	return journal_entry
+
+
+def make_payment_entry(advance, amount):
+	from hrms.overrides.employee_payment_entry import get_payment_entry_for_employee
+
+	payment_entry = get_payment_entry_for_employee(advance.doctype, advance.name)
+	payment_entry.reference_no = "1"
+	payment_entry.reference_date = nowdate()
+	payment_entry.references[0].allocated_amount = amount
+	payment_entry.submit()
+
+	return payment_entry
 
 
 def make_employee_advance(employee_name, args=None):

@@ -8,12 +8,26 @@ from frappe.utils import flt, get_link_to_form, today
 
 
 class FullandFinalStatement(Document):
-	def validate(self):
+	def before_insert(self):
 		self.get_outstanding_statements()
+
+	def validate(self):
+		self.validate_relieving_date()
+		self.get_assets_statements()
 		if self.docstatus == 1:
 			self.validate_settlement("payables")
 			self.validate_settlement("receivables")
 			self.validate_asset()
+
+	def validate_relieving_date(self):
+		if not self.relieving_date:
+			frappe.throw(
+				_("Please set {0} for Employee {1}").format(
+					frappe.bold(_("Relieving Date")),
+					get_link_to_form("Employee", self.employee),
+				),
+				title=_("Missing Relieving Date"),
+			)
 
 	def validate_settlement(self, component_type):
 		for data in self.get(component_type, []):
@@ -34,14 +48,16 @@ class FullandFinalStatement(Document):
 			if not len(self.get("receivables", [])):
 				components = self.get_receivable_component()
 				self.create_component_row(components, "receivables")
-
-			if not len(self.get("assets_allocated", [])):
-				for data in self.get_assets_movement():
-					self.append("assets_allocated", data)
+			self.get_assets_statements()
 		else:
 			frappe.throw(
 				_("Set Relieving Date for Employee: {0}").format(get_link_to_form("Employee", self.employee))
 			)
+
+	def get_assets_statements(self):
+		if not len(self.get("assets_allocated", [])):
+			for data in self.get_assets_movement():
+				self.append("assets_allocated", data)
 
 	def create_component_row(self, components, component_type):
 		for component in components:
@@ -166,9 +182,7 @@ def get_account_and_amount(ref_doctype, ref_document):
 		return [payable_account, amount]
 
 	if ref_doctype == "Gratuity":
-		payable_account, amount = frappe.db.get_value(
-			"Gratuity", ref_document, ["payable_account", "amount"]
-		)
+		payable_account, amount = frappe.db.get_value("Gratuity", ref_document, ["payable_account", "amount"])
 		return [payable_account, amount]
 
 	if ref_doctype == "Expense Claim":

@@ -12,12 +12,14 @@
   "column_break_9",
   "retirement_age",
   "reminders_section",
-  "send_birthday_reminders",
   "column_break_11",
   "send_work_anniversary_reminders",
-  "column_break_18",
+  "send_birthday_reminders",
   "send_holiday_reminders",
   "frequency",
+  "column_break_hyec",
+  "sender",
+  "sender_email",
   "leave_and_expense_claim_settings",
   "send_leave_notification",
   "leave_approval_notification_template",
@@ -29,14 +31,18 @@
   "expense_approver_mandatory_in_expense_claim",
   "show_leaves_of_all_department_members_in_calendar",
   "auto_leave_encashment",
+  "shift_settings_section",
+  "allow_multiple_shift_assignments",
   "hiring_settings_section",
   "check_vacancies",
   "send_interview_reminder",
   "interview_reminder_template",
   "remind_before",
-  "column_break_4",
   "send_interview_feedback_reminder",
   "feedback_reminder_notification_template",
+  "column_break_4",
+  "hiring_sender",
+  "hiring_sender_email",
   "employee_exit_section",
   "exit_questionnaire_web_form",
   "column_break_34",
@@ -70,10 +76,6 @@
    "fieldname": "expense_approver_mandatory_in_expense_claim",
    "fieldtype": "Check",
    "label": "Expense Approver Mandatory In Expense Claim"
-  },
-  {
-   "fieldname": "column_break_18",
-   "fieldtype": "Column Break"
   },
   {
    "default": "1",
@@ -251,13 +253,56 @@
   {
    "fieldname": "column_break_34",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sender",
+   "fieldtype": "Link",
+   "label": "Sender",
+   "options": "Email Account"
+  },
+  {
+   "depends_on": "eval:doc.sender",
+   "fetch_from": "sender.email_id",
+   "fieldname": "sender_email",
+   "fieldtype": "Data",
+   "label": "Sender Email",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_hyec",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "hiring_sender",
+   "fieldtype": "Link",
+   "label": "Sender",
+   "options": "Email Account"
+  },
+  {
+   "depends_on": "eval:doc.hiring_sender",
+   "fetch_from": "hiring_sender.email_id",
+   "fieldname": "hiring_sender_email",
+   "fieldtype": "Data",
+   "label": "Sender Email",
+   "read_only": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "allow_multiple_shift_assignments",
+   "fieldtype": "Check",
+   "label": "Allow Multiple Shift Assignments for Same Date"
+  },
+  {
+   "fieldname": "shift_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Shift Settings"
   }
  ],
  "icon": "fa fa-cog",
  "idx": 1,
  "issingle": 1,
  "links": [],
- "modified": "2022-10-04 17:29:45.926918",
+ "modified": "2023-12-28 23:07:36.317223",
  "modified_by": "Administrator",
  "module": "HR",
  "name": "HR Settings",
@@ -275,5 +320,6 @@
  ],
  "sort_field": "modified",
  "sort_order": "ASC",
+ "states": [],
  "track_changes": 1
 }

@@ -2,18 +2,9 @@
 // License: GNU General Public License v3. See license.txt
 {% include "erpnext/public/js/controllers/accounts.js" %}
 
-cur_frm.add_fetch('company', 'default_letter_head', 'letter_head');
-
-
-cur_frm.cscript.onload = function(doc, dt, dn){
-	var e_tbl = doc.earnings || [];
-	var d_tbl = doc.deductions || [];
-	if (e_tbl.length == 0 && d_tbl.length == 0)
-		return function(r, rt) { refresh_many(['earnings', 'deductions']);};
-}
-
-frappe.ui.form.on('Salary Structure', {
+frappe.ui.form.on("Salary Structure", {
 	onload: function(frm) {
+		frm.alerted_rows = []
 
 		let help_button = $(`<a class = 'control-label'>
 			${__("Condition and Formula Help")}
@@ -99,22 +90,21 @@ frappe.ui.form.on('Salary Structure', {
 		frm.fields_dict['earnings'].grid.set_column_disp("default_amount", false);
 		frm.fields_dict['deductions'].grid.set_column_disp("default_amount", false);
 
-		if(frm.doc.docstatus === 1) {
-			frm.add_custom_button(__("Preview Salary Slip"), function() {
-				frm.trigger('preview_salary_slip');
-			});
-		}
+		if (frm.doc.docstatus === 1) {
+			frm.add_custom_button(__("Assign to Employees"), function() {
+				frm.trigger("assign_to_employees")
+			}, __("Actions"));
 
-		if(frm.doc.docstatus==1) {
 			frm.add_custom_button(__("Assign Salary Structure"), function() {
-				var doc = frappe.model.get_new_doc('Salary Structure Assignment');
+				let doc = frappe.model.get_new_doc("Salary Structure Assignment");
 				doc.salary_structure = frm.doc.name;
 				doc.company = frm.doc.company;
-				frappe.set_route('Form', 'Salary Structure Assignment', doc.name);
-			});
-			frm.add_custom_button(__("Assign to Employees"),function () {
-				frm.trigger('assign_to_employees')
-			})
+				frappe.set_route("Form", "Salary Structure Assignment", doc.name);
+			}, __("Actions"));
+
+			frm.add_custom_button(__("Preview Salary Slip"), function() {
+				frm.trigger("preview_salary_slip");
+			}, __("Actions"));
 		}
 
 		// set columns read-only
@@ -180,7 +170,8 @@ frappe.ui.form.on('Salary Structure', {
 	},
 
 	salary_slip_based_on_timesheet: function(frm) {
-		frm.trigger("toggle_fields")
+		frm.trigger("toggle_fields");
+		hrms.set_payroll_frequency_to_null(frm);
 	},
 
 	preview_salary_slip: function(frm) {
@@ -199,9 +190,9 @@ frappe.ui.form.on('Salary Structure', {
 						title: __("Preview Salary Slip"),
 						fields: [
 							{
-								"label":__("Employee"),
-								"fieldname":"employee",
-								"fieldtype":"Select",
+								"label": __("Employee"),
+								"fieldname": "employee",
+								"fieldtype": "Autocomplete",
 								"reqd": true,
 								options: employees
 							}, {
@@ -261,8 +252,8 @@ var validate_date = function(frm, cdt, cdn) {
 	}
 }
 
-
-cur_frm.cscript.amount = function(doc, cdt, cdn){
+// nosemgrep: frappe-semgrep-rules.rules.frappe-cur-frm-usage
+cur_frm.cscript.amount = function (doc, cdt, cdn) {
 	calculate_totals(doc, cdt, cdn);
 };
 
@@ -287,7 +278,8 @@ var calculate_totals = function(doc) {
 	refresh_many(['total_earning', 'total_deduction', 'net_pay']);
 }
 
-cur_frm.cscript.validate = function(doc, cdt, cdn) {
+// nosemgrep: frappe-semgrep-rules.rules.frappe-cur-frm-usage
+cur_frm.cscript.validate = function (doc, cdt, cdn) {
 	calculate_totals(doc);
 }
 
@@ -303,6 +295,19 @@ frappe.ui.form.on('Salary Detail', {
 
 	deductions_remove: function(frm) {
 		calculate_totals(frm.doc);
+	},
+
+	formula: function(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (row.formula && !row?.amount_based_on_formula && !frm.alerted_rows.includes(cdn)) {
+			frappe.msgprint({
+				message: __("{0} Row #{1}: {2} needs to be enabled for the formula to be considered.",
+					[toTitle(row.parentfield), row.idx, __("Amount based on formula").bold()]),
+				title: __("Warning"),
+				indicator: "orange",
+			});
+			frm.alerted_rows.push(cdn)
+		}
 	},
 
 	salary_component: function(frm, cdt, cdn) {
@@ -341,10 +346,11 @@ frappe.ui.form.on('Salary Detail', {
 
 	amount_based_on_formula: function(frm, cdt, cdn) {
 		var child = locals[cdt][cdn];
-		if(child.amount_based_on_formula == 1){
+		if (child.amount_based_on_formula == 1) {
 			frappe.model.set_value(cdt, cdn, 'amount', null);
-		}
-		else{
+			const index = frm.alerted_rows.indexOf(cdn);
+			if (index > -1) frm.alerted_rows.splice(index, 1);
+		} else {
 			frappe.model.set_value(cdt, cdn, 'formula', null);
 		}
 	}

@@ -1,7 +1,6 @@
 # Copyright (c) 2019, Frappe Technologies Pvt. Ltd. and Contributors
 # See license.txt
 
-import unittest
 from datetime import datetime, timedelta
 
 import frappe
@@ -86,7 +85,7 @@ class TestEmployeeCheckin(FrappeTestCase):
 		attendance.cancel()
 
 		linked_logs = frappe.db.get_all("Employee Checkin", {"attendance": attendance.name})
-		self.assertEquals(len(linked_logs), 0)
+		self.assertEqual(len(linked_logs), 0)
 
 	def test_calculate_working_hours(self):
 		check_in_out_type = [
@@ -117,24 +116,16 @@ class TestEmployeeCheckin(FrappeTestCase):
 		logs_type_1 = [frappe._dict(x) for x in logs_type_1]
 		logs_type_2 = [frappe._dict(x) for x in logs_type_2]
 
-		working_hours = calculate_working_hours(
-			logs_type_1, check_in_out_type[0], working_hours_calc_type[0]
-		)
+		working_hours = calculate_working_hours(logs_type_1, check_in_out_type[0], working_hours_calc_type[0])
 		self.assertEqual(working_hours, (6.5, logs_type_1[0].time, logs_type_1[-1].time))
 
-		working_hours = calculate_working_hours(
-			logs_type_1, check_in_out_type[0], working_hours_calc_type[1]
-		)
+		working_hours = calculate_working_hours(logs_type_1, check_in_out_type[0], working_hours_calc_type[1])
 		self.assertEqual(working_hours, (4.5, logs_type_1[0].time, logs_type_1[-1].time))
 
-		working_hours = calculate_working_hours(
-			logs_type_2, check_in_out_type[1], working_hours_calc_type[0]
-		)
+		working_hours = calculate_working_hours(logs_type_2, check_in_out_type[1], working_hours_calc_type[0])
 		self.assertEqual(working_hours, (5, logs_type_2[1].time, logs_type_2[-1].time))
 
-		working_hours = calculate_working_hours(
-			logs_type_2, check_in_out_type[1], working_hours_calc_type[1]
-		)
+		working_hours = calculate_working_hours(logs_type_2, check_in_out_type[1], working_hours_calc_type[1])
 		self.assertEqual(working_hours, (4.5, logs_type_2[1].time, logs_type_2[-1].time))
 
 		working_hours = calculate_working_hours(
@@ -230,9 +221,7 @@ class TestEmployeeCheckin(FrappeTestCase):
 	def test_fetch_night_shift_for_assignment_without_end_date(self):
 		"""Tests if shift is correctly fetched in logs when assignment has no end date"""
 		employee = make_employee("test_employee_checkin@example.com", company="_Test Company")
-		shift_type = setup_shift_type(
-			shift_type="Midnight Shift", start_time="23:00:00", end_time="01:00:00"
-		)
+		shift_type = setup_shift_type(shift_type="Midnight Shift", start_time="23:00:00", end_time="01:00:00")
 		date = getdate()
 		next_day = add_days(date, 1)
 		make_shift_assignment(shift_type.name, employee, date)
@@ -257,9 +246,7 @@ class TestEmployeeCheckin(FrappeTestCase):
 		Tests if shift is correctly fetched in logs when assignment starts and ends on the same day
 		"""
 		employee = make_employee("test_employee_checkin@example.com", company="_Test Company")
-		shift_type = setup_shift_type(
-			shift_type="Midnight Shift", start_time="23:00:00", end_time="07:00:00"
-		)
+		shift_type = setup_shift_type(shift_type="Midnight Shift", start_time="23:00:00", end_time="07:00:00")
 		date = getdate()
 		next_day = add_days(date, 1)
 
@@ -279,11 +266,9 @@ class TestEmployeeCheckin(FrappeTestCase):
 			self.assertEqual(log.shift_start, start_timestamp)
 			self.assertEqual(log.shift_end, end_timestamp)
 
-	def test_night_shift_not_fetched_outside_assignment_boundary(self):
+	def test_night_shift_not_fetched_outside_assignment_boundary_for_diff_start_date(self):
 		employee = make_employee("test_employee_checkin@example.com", company="_Test Company")
-		shift_type = setup_shift_type(
-			shift_type="Midnight Shift", start_time="23:00:00", end_time="07:00:00"
-		)
+		shift_type = setup_shift_type(shift_type="Midnight Shift", start_time="23:00:00", end_time="07:00:00")
 		date = getdate()
 		next_day = add_days(date, 1)
 		prev_day = add_days(date, -1)
@@ -303,6 +288,141 @@ class TestEmployeeCheckin(FrappeTestCase):
 		log = make_checkin(employee, datetime.combine(prev_day, get_time("23:00:00")))
 		self.assertIsNone(log.shift)
 
+	def test_night_shift_not_fetched_outside_assignment_boundary_for_diff_end_date(self):
+		employee = make_employee("test_employee_checkin@example.com", company="_Test Company")
+		shift_type = setup_shift_type(shift_type="Midnight Shift", start_time="19:00:00", end_time="00:30:00")
+		date = getdate()
+		next_day = add_days(date, 1)
+		prev_day = add_days(date, -1)
+
+		# shift assigned for a single day
+		make_shift_assignment(shift_type.name, employee, date, date)
+
+		# shift not applicable on next day's start time
+		log = make_checkin(employee, datetime.combine(next_day, get_time("19:00:00")))
+		self.assertIsNone(log.shift)
+
+		# shift not applicable on current day's end time
+		log = make_checkin(employee, datetime.combine(date, get_time("00:30:00")))
+		self.assertIsNone(log.shift)
+
+		# shift not applicable on prev day's start time
+		log = make_checkin(employee, datetime.combine(prev_day, get_time("19:00:00")))
+		self.assertIsNone(log.shift)
+
+	def test_night_shift_not_fetched_outside_before_shift_margin(self):
+		employee = make_employee("test_employee_checkin@example.com", company="_Test Company")
+		shift_type = setup_shift_type(shift_type="Midnight Shift", start_time="00:30:00", end_time="10:00:00")
+		date = getdate()
+		next_day = add_days(date, 1)
+		prev_day = add_days(date, -1)
+
+		# shift assigned for a single day
+		make_shift_assignment(shift_type.name, employee, date, date)
+
+		# shift not fetched in today's shift margin
+		log = make_checkin(employee, datetime.combine(date, get_time("23:30:00")))
+		self.assertIsNone(log.shift)
+
+		# shift not applicable on next day's start time
+		log = make_checkin(employee, datetime.combine(next_day, get_time("00:30:00")))
+		self.assertIsNone(log.shift)
+
+		# shift not applicable on prev day's start time
+		log = make_checkin(employee, datetime.combine(prev_day, get_time("00:30:00")))
+		self.assertIsNone(log.shift)
+
+	def test_night_shift_not_fetched_outside_after_shift_margin(self):
+		employee = make_employee("test_employee_checkin@example.com", company="_Test Company")
+		shift_type = setup_shift_type(shift_type="Midnight Shift", start_time="15:00:00", end_time="23:30:00")
+		date = getdate()
+		next_day = add_days(date, 1)
+		prev_day = add_days(date, -1)
+
+		# shift assigned for a single day
+		make_shift_assignment(shift_type.name, employee, date, date)
+
+		# shift not fetched in today's shift margin
+		log = make_checkin(employee, datetime.combine(date, get_time("00:30:00")))
+		self.assertIsNone(log.shift)
+
+		# shift not applicable on next day's start time
+		log = make_checkin(employee, datetime.combine(next_day, get_time("15:00:00")))
+		self.assertIsNone(log.shift)
+
+		# shift not applicable on prev day's start time
+		log = make_checkin(employee, datetime.combine(prev_day, get_time("15:00:00")))
+		self.assertIsNone(log.shift)
+
+		# shift not applicable on prev day's end time
+		log = make_checkin(employee, datetime.combine(prev_day, get_time("00:30:00")))
+		self.assertIsNone(log.shift)
+
+	def test_fetch_night_shift_in_margin_period_after_shift(self):
+		"""
+		Tests if shift is correctly fetched in logs if the actual end time exceeds a day
+		i.e: shift is from 15:00 to 23:00 (starts & ends on the same day)
+		but shift margin = 2 hours, so the actual shift goes to 1:00 of the next day
+		"""
+		employee = make_employee("test_employee_checkin@example.com", company="_Test Company")
+		# shift margin goes to next day (1:00 am)
+		shift_type = setup_shift_type(
+			shift_type="Midnight Shift",
+			start_time="15:00:00",
+			end_time="23:00:00",
+			allow_check_out_after_shift_end_time=120,
+		)
+		date = getdate()
+		next_day = add_days(date, 1)
+
+		# shift assigned for a single day
+		make_shift_assignment(shift_type.name, employee, date, date)
+
+		# IN log falls on the first day
+		start_timestamp = datetime.combine(date, get_time("14:00:00"))
+		log_in = make_checkin(employee, start_timestamp)
+
+		# OUT log falls on the second day in the shift margin period
+		end_timestamp = datetime.combine(next_day, get_time("01:00:00"))
+		log_out = make_checkin(employee, end_timestamp)
+
+		for log in [log_in, log_out]:
+			self.assertEqual(log.shift, shift_type.name)
+			self.assertEqual(log.shift_actual_start, start_timestamp)
+			self.assertEqual(log.shift_actual_end, end_timestamp)
+
+	def test_fetch_night_shift_in_margin_period_before_shift(self):
+		"""
+		Tests if shift is correctly fetched in logs if the actual end time exceeds a day
+		i.e: shift is from 00:30 to 10:00 (starts & ends on the same day)
+		but shift margin = 1 hour, so the actual shift start goes to 23:30:00 of the prev day
+		"""
+		employee = make_employee("test_employee_checkin@example.com", company="_Test Company")
+		# shift margin goes to next day (1:00 am)
+		shift_type = setup_shift_type(
+			shift_type="Midnight Shift",
+			start_time="00:30:00",
+			end_time="10:00:00",
+		)
+		date = getdate()
+		prev_day = add_days(date, -1)
+
+		# shift assigned for a single day
+		make_shift_assignment(shift_type.name, employee, date, date)
+
+		# IN log falls on the first day in the shift margin period
+		start_timestamp = datetime.combine(prev_day, get_time("23:30:00"))
+		log_in = make_checkin(employee, start_timestamp)
+
+		# OUT log falls on the second day
+		end_timestamp = datetime.combine(date, get_time("11:00:00"))
+		log_out = make_checkin(employee, end_timestamp)
+
+		for log in [log_in, log_out]:
+			self.assertEqual(log.shift, shift_type.name)
+			self.assertEqual(log.shift_actual_start, start_timestamp)
+			self.assertEqual(log.shift_actual_end, end_timestamp)
+
 	def test_consecutive_shift_assignments_overlapping_within_grace_period(self):
 		# test adjustment for start and end times if they are overlapping
 		# within "begin_check_in_before_shift_start_time" and "allow_check_out_after_shift_end_time" periods
@@ -311,9 +431,7 @@ class TestEmployeeCheckin(FrappeTestCase):
 		# 8 - 12
 		shift1 = setup_shift_type()
 		# 12:30 - 16:30
-		shift2 = setup_shift_type(
-			shift_type="Consecutive Shift", start_time="12:30:00", end_time="16:30:00"
-		)
+		shift2 = setup_shift_type(shift_type="Consecutive Shift", start_time="12:30:00", end_time="16:30:00")
 
 		# the actual start and end times (with grace) for these shifts are 7 - 13 and 11:30 - 17:30
 		date = getdate()
@@ -343,13 +461,14 @@ class TestEmployeeCheckin(FrappeTestCase):
 def make_n_checkins(employee, n, hours_to_reverse=1):
 	logs = [make_checkin(employee, now_datetime() - timedelta(hours=hours_to_reverse, minutes=n + 1))]
 	for i in range(n - 1):
-		logs.append(
-			make_checkin(employee, now_datetime() - timedelta(hours=hours_to_reverse, minutes=n - i))
-		)
+		logs.append(make_checkin(employee, now_datetime() - timedelta(hours=hours_to_reverse, minutes=n - i)))
 	return logs
 
 
-def make_checkin(employee, time=now_datetime()):
+def make_checkin(employee, time=None):
+	if not time:
+		time = now_datetime()
+
 	log = frappe.get_doc(
 		{
 			"doctype": "Employee Checkin",

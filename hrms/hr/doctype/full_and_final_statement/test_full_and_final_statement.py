@@ -1,9 +1,8 @@
 # Copyright (c) 2021, Frappe Technologies Pvt. Ltd. and Contributors
 # See license.txt
 
-import unittest
-
 import frappe
+from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, today
 
 from erpnext.assets.doctype.asset.test_asset import create_asset_data
@@ -11,7 +10,7 @@ from erpnext.setup.doctype.employee.test_employee import make_employee
 from erpnext.stock.doctype.purchase_receipt.test_purchase_receipt import make_purchase_receipt
 
 
-class TestFullandFinalStatement(unittest.TestCase):
+class TestFullandFinalStatement(FrappeTestCase):
 	def setUp(self):
 		create_asset_data()
 
@@ -69,9 +68,7 @@ def create_asset_movement(employee):
 
 
 def create_asset():
-	pr = make_purchase_receipt(
-		item_code="Macbook Pro", qty=1, rate=100000.0, location="Test Location"
-	)
+	pr = make_purchase_receipt(item_code="Macbook Pro", qty=1, rate=100000.0, location="Test Location")
 
 	asset_name = frappe.db.get_value("Asset", {"purchase_receipt": pr.name}, "name")
 	asset = frappe.get_doc("Asset", asset_name)

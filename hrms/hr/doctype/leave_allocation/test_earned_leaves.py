@@ -140,9 +140,7 @@ class TestLeaveAllocation(FrappeTestCase):
 		# assignment created on the last day of the current month
 		frappe.flags.current_date = get_last_day(getdate())
 
-		leave_policy_assignments = make_policy_assignment(
-			self.employee, assignment_based_on="Joining Date"
-		)
+		leave_policy_assignments = make_policy_assignment(self.employee, assignment_based_on="Joining Date")
 		leaves_allocated = get_allocated_leaves(leave_policy_assignments[0])
 		effective_from = frappe.db.get_value(
 			"Leave Policy Assignment", leave_policy_assignments[0], "effective_from"
@@ -356,9 +354,7 @@ class TestLeaveAllocation(FrappeTestCase):
 			self.employee, allocate_on_day="Date of Joining", start_date=start_date
 		)
 		leaves_allocated = get_allocated_leaves(leave_policy_assignments[0])
-		pro_rated_leave = round_earned_leaves(
-			calculate_pro_rated_leaves(1, doj, start_date, end_date), "0.5"
-		)
+		pro_rated_leave = round_earned_leaves(calculate_pro_rated_leaves(1, doj, start_date, end_date), "0.5")
 		self.assertEqual(leaves_allocated, pro_rated_leave)
 
 		# Case 2: Doesn't allocate before the current month's doj (via scheduler)
@@ -436,6 +432,8 @@ class TestLeaveAllocation(FrappeTestCase):
 	@set_holiday_list("Salary Slip Test Holiday List", "_Test Company")
 	def test_get_earned_leave_details_for_dashboard(self):
 		frappe.flags.current_date = get_year_start(getdate())
+		first_sunday = get_first_sunday(self.holiday_list, for_date=frappe.flags.current_date)
+
 		leave_policy_assignments = make_policy_assignment(
 			self.employee,
 			annual_allocation=6,
@@ -452,10 +450,8 @@ class TestLeaveAllocation(FrappeTestCase):
 
 		allocate_earned_leaves_for_months(6)
 
-		first_sunday = get_first_sunday(self.holiday_list)
-		make_leave_application(
-			self.employee.name, add_days(first_sunday, 1), add_days(first_sunday, 1), self.leave_type
-		)
+		leave_date = add_days(first_sunday, 1)
+		make_leave_application(self.employee.name, leave_date, leave_date, self.leave_type)
 
 		# 2 leaves were allocated when the allocation was created
 		details = get_leave_details(self.employee.name, allocation.from_date)
@@ -540,9 +536,7 @@ def make_policy_assignment(
 		{
 			"doctype": "Leave Policy",
 			"title": "Test Earned Leave Policy",
-			"leave_policy_details": [
-				{"leave_type": leave_type.name, "annual_allocation": annual_allocation}
-			],
+			"leave_policy_details": [{"leave_type": leave_type.name, "annual_allocation": annual_allocation}],
 		}
 	).insert()
 
@@ -553,9 +547,7 @@ def make_policy_assignment(
 		"carry_forward": carry_forward,
 	}
 
-	leave_policy_assignments = create_assignment_for_multiple_employees(
-		[employee.name], frappe._dict(data)
-	)
+	leave_policy_assignments = create_assignment_for_multiple_employees([employee.name], frappe._dict(data))
 	return leave_policy_assignments
 
 
@@ -568,6 +560,6 @@ def get_allocated_leaves(assignment):
 
 
 def allocate_earned_leaves_for_months(months):
-	for i in range(0, months):
+	for _ in range(0, months):
 		frappe.flags.current_date = add_months(frappe.flags.current_date, 1)
 		allocate_earned_leaves()

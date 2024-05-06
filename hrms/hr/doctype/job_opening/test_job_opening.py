@@ -1,8 +1,6 @@
 # Copyright (c) 2015, Frappe Technologies Pvt. Ltd. and Contributors
 # See license.txt
 
-import unittest
-
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, getdate
@@ -22,9 +20,7 @@ class TestJobOpening(FrappeTestCase):
 		frappe.db.delete("Employee", {"company": "_Test Opening Company"})
 
 	def test_vacancies_fulfilled(self):
-		make_employee(
-			"test_job_opening@example.com", company="_Test Opening Company", designation="Designer"
-		)
+		make_employee("test_job_opening@example.com", company="_Test Opening Company", designation="Designer")
 
 		staffing_plan = frappe.get_doc(
 			{

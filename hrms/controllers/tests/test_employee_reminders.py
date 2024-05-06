@@ -1,10 +1,10 @@
 # Copyright (c) 2021, Frappe Technologies Pvt. Ltd. and Contributors
 # License: GNU General Public License v3. See license.txt
 
-import unittest
 from datetime import timedelta
 
 import frappe
+from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_months, getdate
 
 from erpnext.setup.doctype.employee.test_employee import make_employee
@@ -14,9 +14,10 @@ from hrms.hr.doctype.hr_settings.hr_settings import set_proceed_with_frequency_c
 from hrms.hr.utils import get_holidays_for_employee
 
 
-class TestEmployeeReminders(unittest.TestCase):
+class TestEmployeeReminders(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
+		super().setUpClass()
 		from erpnext.setup.doctype.holiday_list.test_holiday_list import make_holiday_list
 
 		# Create a test holiday list
@@ -35,10 +36,7 @@ class TestEmployeeReminders(unittest.TestCase):
 			to_date=getdate() + timedelta(weeks=5),
 		)
 
-		# Create a test employee
-		test_employee = frappe.get_doc(
-			"Employee", make_employee("test@gopher.io", company="_Test Company")
-		)
+		test_employee = frappe.get_doc("Employee", make_employee("test@gopher.io", company="_Test Company"))
 
 		# Attach the holiday list to employee
 		test_employee.holiday_list = test_holiday_list.name
@@ -102,9 +100,7 @@ class TestEmployeeReminders(unittest.TestCase):
 		self.assertTrue("test holiday1" in descriptions)
 
 	def test_birthday_reminders(self):
-		employee = frappe.get_doc(
-			"Employee", frappe.db.sql_list("select name from tabEmployee limit 1")[0]
-		)
+		employee = frappe.get_doc("Employee", frappe.db.sql_list("select name from tabEmployee limit 1")[0])
 		employee.date_of_birth = "1992" + frappe.utils.nowdate()[4:]
 		employee.company_email = "test@example.com"
 		employee.company = "_Test Company"
@@ -133,7 +129,7 @@ class TestEmployeeReminders(unittest.TestCase):
 			send_work_anniversary_reminders,
 		)
 
-		emp = make_employee(
+		make_employee(
 			"test_emp_work_anniversary@gmail.com",
 			company="_Test Company",
 			date_of_joining=frappe.utils.add_years(getdate(), -2),

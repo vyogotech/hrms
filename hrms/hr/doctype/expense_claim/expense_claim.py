@@ -37,8 +37,6 @@ class ExpenseClaim(AccountsController):
 		self.calculate_total_amount()
 		self.validate_advances()
 		self.set_expense_account(validate=True)
-		self.set_payable_account()
-		self.set_cost_center()
 		self.calculate_taxes()
 		self.set_status()
 		if self.task and not self.project:
@@ -49,31 +47,26 @@ class ExpenseClaim(AccountsController):
 
 		precision = self.precision("grand_total")
 
-		if (
-			# set as paid
-			self.is_paid
-			or (
-				flt(self.total_sanctioned_amount > 0)
-				and (
-					# grand total is reimbursed
-					(
-						self.docstatus == 1
-						and flt(self.grand_total, precision) == flt(self.total_amount_reimbursed, precision)
+		if self.docstatus == 1:
+			if self.approval_status == "Approved":
+				if (
+					# set as paid
+					self.is_paid
+					or (
+						flt(self.total_sanctioned_amount) > 0
+						and (
+							# grand total is reimbursed
+							(flt(self.grand_total, precision) == flt(self.total_amount_reimbursed, precision))
+							# grand total (to be paid) is 0 since linked advances already cover the claimed amount
+							or (flt(self.grand_total, precision) == 0)
+						)
 					)
-					# grand total (to be paid) is 0 since linked advances already cover the claimed amount
-					or (flt(self.grand_total, precision) == 0)
-				)
-			)
-		) and self.approval_status == "Approved":
-			status = "Paid"
-		elif (
-			flt(self.total_sanctioned_amount) > 0
-			and self.docstatus == 1
-			and self.approval_status == "Approved"
-		):
-			status = "Unpaid"
-		elif self.docstatus == 1 and self.approval_status == "Rejected":
-			status = "Rejected"
+				):
+					status = "Paid"
+				elif flt(self.total_sanctioned_amount) > 0:
+					status = "Unpaid"
+			elif self.approval_status == "Rejected":
+				status = "Rejected"
 
 		if update:
 			self.db_set("status", status)
@@ -82,16 +75,6 @@ class ExpenseClaim(AccountsController):
 
 	def on_update(self):
 		share_doc_with_approver(self, self.expense_approver)
-
-	def set_payable_account(self):
-		if not self.payable_account and not self.is_paid:
-			self.payable_account = frappe.get_cached_value(
-				"Company", self.company, "default_expense_claim_payable_account"
-			)
-
-	def set_cost_center(self):
-		if not self.cost_center:
-			self.cost_center = frappe.get_cached_value("Company", self.company, "cost_center")
 
 	def on_submit(self):
 		if self.approval_status == "Draft":
@@ -160,6 +143,7 @@ class ExpenseClaim(AccountsController):
 						"against_voucher_type": self.doctype,
 						"against_voucher": self.name,
 						"cost_center": self.cost_center,
+						"project": self.project,
 					},
 					item=self,
 				)
@@ -175,6 +159,7 @@ class ExpenseClaim(AccountsController):
 						"debit_in_account_currency": data.sanctioned_amount,
 						"against": self.employee,
 						"cost_center": data.cost_center or self.cost_center,
+						"project": data.project or self.project,
 					},
 					item=data,
 				)
@@ -241,7 +226,8 @@ class ExpenseClaim(AccountsController):
 						"debit": tax.tax_amount,
 						"debit_in_account_currency": tax.tax_amount,
 						"against": self.employee,
-						"cost_center": self.cost_center,
+						"cost_center": tax.cost_center or self.cost_center,
+						"project": tax.project or self.project,
 						"against_voucher_type": self.doctype,
 						"against_voucher": self.name,
 					},
@@ -265,32 +251,48 @@ class ExpenseClaim(AccountsController):
 	def calculate_total_amount(self):
 		self.total_claimed_amount = 0
 		self.total_sanctioned_amount = 0
+
 		for d in self.get("expenses"):
+			self.round_floats_in(d)
+
 			if self.approval_status == "Rejected":
 				d.sanctioned_amount = 0.0
 
 			self.total_claimed_amount += flt(d.amount)
 			self.total_sanctioned_amount += flt(d.sanctioned_amount)
 
+		self.round_floats_in(self, ["total_claimed_amount", "total_sanctioned_amount"])
+
 	@frappe.whitelist()
 	def calculate_taxes(self):
 		self.total_taxes_and_charges = 0
 		for tax in self.taxes:
+			self.round_floats_in(tax)
+
 			if tax.rate:
-				tax.tax_amount = flt(self.total_sanctioned_amount) * flt(tax.rate / 100)
+				tax.tax_amount = flt(
+					flt(self.total_sanctioned_amount) * flt(tax.rate / 100),
+					tax.precision("tax_amount"),
+				)
 
 			tax.total = flt(tax.tax_amount) + flt(self.total_sanctioned_amount)
 			self.total_taxes_and_charges += flt(tax.tax_amount)
+
+		self.round_floats_in(self, ["total_taxes_and_charges"])
 
 		self.grand_total = (
 			flt(self.total_sanctioned_amount)
 			+ flt(self.total_taxes_and_charges)
 			- flt(self.total_advance_amount)
 		)
+		self.round_floats_in(self, ["grand_total"])
 
 	def validate_advances(self):
 		self.total_advance_amount = 0
+
 		for d in self.get("advances"):
+			self.round_floats_in(d)
+
 			ref_doc = frappe.db.get_value(
 				"Employee Advance",
 				d.employee_advance,
@@ -312,6 +314,7 @@ class ExpenseClaim(AccountsController):
 			self.total_advance_amount += flt(d.allocated_amount)
 
 		if self.total_advance_amount:
+			self.round_floats_in(self, ["total_advance_amount"])
 			precision = self.precision("total_advance_amount")
 			amount_with_taxes = flt(
 				(flt(self.total_sanctioned_amount, precision) + flt(self.total_taxes_and_charges, precision)),

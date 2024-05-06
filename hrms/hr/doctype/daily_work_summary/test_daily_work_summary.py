@@ -2,15 +2,15 @@
 # See license.txt
 
 import os
-import unittest
 
 import frappe
 import frappe.utils
+from frappe.tests.utils import FrappeTestCase
 
 # test_records = frappe.get_test_records('Daily Work Summary')
 
 
-class TestDailyWorkSummary(unittest.TestCase):
+class TestDailyWorkSummary(FrappeTestCase):
 	def test_email_trigger(self):
 		self.setup_and_prepare_test()
 		for d in self.users:
@@ -36,7 +36,7 @@ class TestDailyWorkSummary(unittest.TestCase):
 	def test_incoming(self):
 		# get test mail with message-id as in-reply-to
 		self.setup_and_prepare_test()
-		with open(os.path.join(os.path.dirname(__file__), "test_data", "test-reply.raw"), "r") as f:
+		with open(os.path.join(os.path.dirname(__file__), "test_data", "test-reply.raw")) as f:
 			if not self.emails:
 				return
 			test_mails = [
@@ -65,9 +65,7 @@ class TestDailyWorkSummary(unittest.TestCase):
 		frappe.db.sql("delete from `tabCommunication`")
 		frappe.db.sql("delete from `tabDaily Work Summary Group`")
 
-		self.users = frappe.get_all(
-			"User", fields=["email"], filters=dict(email=("!=", "test@example.com"))
-		)
+		self.users = frappe.get_all("User", fields=["email"], filters=dict(email=("!=", "test@example.com")))
 		self.setup_groups(hour)
 
 		from hrms.hr.doctype.daily_work_summary_group.daily_work_summary_group import trigger_emails

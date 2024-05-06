@@ -1,8 +1,6 @@
 # Copyright (c) 2020, Frappe Technologies Pvt. Ltd. and Contributors
 # See license.txt
 
-import unittest
-
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, add_months, floor, flt, get_datetime, get_first_day, getdate
@@ -57,7 +55,7 @@ class TestGratuity(FrappeTestCase):
 			date_of_joining=doj,
 			relieving_date=relieving_date,
 		)
-		sal_slip = create_salary_slip("test_employee_gratuity@salary.com")
+		sal_slip = create_salary_slip(employee)
 
 		rule = get_gratuity_rule("Rule Under Unlimited Contract on termination (UAE)")
 		gratuity = create_gratuity(pay_via_salary_slip=1, employee=employee, rule=rule.name)
@@ -114,7 +112,7 @@ class TestGratuity(FrappeTestCase):
 			relieving_date=relieving_date,
 		)
 
-		sal_slip = create_salary_slip("test_employee_gratuity@salary.com")
+		sal_slip = create_salary_slip(employee)
 		rule = get_gratuity_rule("Rule Under Limited Contract (UAE)")
 		set_mode_of_payment_account()
 
@@ -200,9 +198,7 @@ def set_mode_of_payment_account():
 	mode_of_payment = frappe.get_doc("Mode of Payment", "Cash")
 
 	mode_of_payment.accounts = []
-	mode_of_payment.append(
-		"accounts", {"company": "_Test Company", "default_account": "_Test Bank - _TC"}
-	)
+	mode_of_payment.append("accounts", {"company": "_Test Company", "default_account": "_Test Bank - _TC"})
 	mode_of_payment.save()
 
 

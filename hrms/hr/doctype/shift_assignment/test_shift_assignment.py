@@ -1,8 +1,6 @@
 # Copyright (c) 2018, Frappe Technologies Pvt. Ltd. and Contributors
 # See license.txt
 
-import unittest
-
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, get_datetime, getdate, nowdate
@@ -10,6 +8,7 @@ from frappe.utils import add_days, get_datetime, getdate, nowdate
 from erpnext.setup.doctype.employee.test_employee import make_employee
 
 from hrms.hr.doctype.shift_assignment.shift_assignment import (
+	MultipleShiftError,
 	OverlappingShiftError,
 	get_actual_start_end_datetime_of_shift,
 	get_events,
@@ -67,6 +66,39 @@ class TestShiftAssignment(FrappeTestCase):
 		)
 
 		self.assertRaises(OverlappingShiftError, shift_assignment.save)
+
+	def test_multiple_shift_assignments_for_same_date(self):
+		setup_shift_type(shift_type="Day Shift")
+		shift_assignment_1 = frappe.get_doc(
+			{
+				"doctype": "Shift Assignment",
+				"shift_type": "Day Shift",
+				"company": "_Test Company",
+				"employee": "_T-Employee-00001",
+				"start_date": nowdate(),
+				"end_date": add_days(nowdate(), 30),
+				"status": "Active",
+			}
+		).insert()
+		shift_assignment_1.submit()
+
+		setup_shift_type(shift_type="Night Shift", start_time="19:00:00", end_time="23:00:00")
+		shift_assignment_2 = frappe.get_doc(
+			{
+				"doctype": "Shift Assignment",
+				"shift_type": "Night Shift",
+				"company": "_Test Company",
+				"employee": "_T-Employee-00001",
+				"start_date": nowdate(),
+				"end_date": add_days(nowdate(), 30),
+				"status": "Active",
+			}
+		)
+
+		frappe.db.set_single_value("HR Settings", "allow_multiple_shift_assignments", 0)
+		self.assertRaises(MultipleShiftError, shift_assignment_2.save)
+		frappe.db.set_single_value("HR Settings", "allow_multiple_shift_assignments", 1)
+		shift_assignment_2.save()  # would throw error if multiple shift assignments not allowed
 
 	def test_overlapping_for_fixed_period_shift(self):
 		# shift should is for Fixed period if Only start_date and end_date both are present and status = Active
@@ -195,31 +227,53 @@ class TestShiftAssignment(FrappeTestCase):
 		date = getdate()
 		make_shift_assignment(shift_type.name, employee, date)
 
-	def test_shift_assignment_calendar(self):
+	def test_calendar(self):
 		employee1 = make_employee("test_shift_assignment1@example.com", company="_Test Company")
 		employee2 = make_employee("test_shift_assignment2@example.com", company="_Test Company")
+		employee3 = make_employee("test_shift_assignment3@example.com", company="_Test Company")
 
 		shift_type = setup_shift_type(shift_type="Shift 1", start_time="08:00:00", end_time="12:00:00")
 		date = getdate()
-		shift1 = make_shift_assignment(shift_type.name, employee1, date)
-		make_shift_assignment(shift_type.name, employee2, date)
+		shift1 = make_shift_assignment(shift_type.name, employee1, date)  # 1 day
+		make_shift_assignment(shift_type.name, employee2, date)  # excluded due to employee filter
+		make_shift_assignment(shift_type.name, employee3, add_days(date, -3), add_days(date, -2))  # excluded
+		shift2 = make_shift_assignment(shift_type.name, employee3, add_days(date, -1), date)  # 2 days
+		shift3 = make_shift_assignment(
+			shift_type.name, employee3, add_days(date, 1), add_days(date, 2)
+		)  # 2 days
+		shift4 = make_shift_assignment(
+			shift_type.name, employee3, add_days(date, 30), add_days(date, 30)
+		)  # 1 day
+		make_shift_assignment(shift_type.name, employee3, add_days(date, 31))  # excluded
 
 		events = get_events(
-			start=date, end=date, filters=[["Shift Assignment", "employee", "=", employee1, False]]
+			start=date,
+			end=add_days(date, 30),
+			filters=[["Shift Assignment", "employee", "!=", employee2, False]],
 		)
-		self.assertEqual(len(events), 1)
-		self.assertEqual(events[0]["name"], shift1.name)
+		self.assertEqual(len(events), 6)
+		for shift in events:
+			self.assertIn(shift["name"], [shift1.name, shift2.name, shift3.name, shift4.name])
+
+	def test_calendar_for_night_shift(self):
+		employee1 = make_employee("test_shift_assignment1@example.com", company="_Test Company")
+
+		shift_type = setup_shift_type(shift_type="Shift 1", start_time="08:00:00", end_time="02:00:00")
+		date = getdate()
+		make_shift_assignment(shift_type.name, employee1, date, date)
+
+		events = get_events(start=date, end=date)
+		self.assertEqual(events[0]["start_date"], get_datetime(f"{date} 08:00:00"))
+		self.assertEqual(events[0]["end_date"], get_datetime(f"{add_days(date, 1)} 02:00:00"))
 
 	def test_consecutive_day_and_night_shifts(self):
 		# defaults
-		employee = make_employee("test_shift_assignment@example.com", company="_Test Company")
+		employee = make_employee("test_default_shift_assignment@example.com", company="_Test Company")
 		today = getdate()
 		yesterday = add_days(today, -1)
 
 		# default shift
-		shift_type = setup_shift_type(
-			shift_type="Test Security", start_time="07:00:00", end_time="19:00:00"
-		)
+		shift_type = setup_shift_type(shift_type="Test Security", start_time="07:00:00", end_time="19:00:00")
 		frappe.db.set_value("Employee", employee, "default_shift", shift_type.name)
 
 		# night shift
@@ -229,21 +283,15 @@ class TestShiftAssignment(FrappeTestCase):
 		make_shift_assignment(shift_type.name, employee, yesterday, yesterday)
 
 		# prev shift log
-		prev_shift = get_actual_start_end_datetime_of_shift(
-			employee, get_datetime(f"{today} 07:00:00"), True
-		)
+		prev_shift = get_actual_start_end_datetime_of_shift(employee, get_datetime(f"{today} 07:00:00"), True)
 		self.assertEqual(prev_shift.shift_type.name, "Test Security - Night")
 		self.assertEqual(prev_shift.actual_start.date(), yesterday)
 		self.assertEqual(prev_shift.actual_end.date(), today)
 
 		# current shift IN
-		checkin = get_actual_start_end_datetime_of_shift(
-			employee, get_datetime(f"{today} 07:01:00"), True
-		)
+		checkin = get_actual_start_end_datetime_of_shift(employee, get_datetime(f"{today} 07:01:00"), True)
 		# current shift OUT
-		checkout = get_actual_start_end_datetime_of_shift(
-			employee, get_datetime(f"{today} 19:00:00"), True
-		)
+		checkout = get_actual_start_end_datetime_of_shift(employee, get_datetime(f"{today} 19:00:00"), True)
 		self.assertEqual(checkin.shift_type, checkout.shift_type)
 		self.assertEqual(checkin.actual_start.date(), today)
 		self.assertEqual(checkout.actual_end.date(), today)

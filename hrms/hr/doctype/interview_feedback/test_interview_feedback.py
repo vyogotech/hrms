@@ -1,19 +1,18 @@
 # Copyright (c) 2021, Frappe Technologies Pvt. Ltd. and Contributors
 # See license.txt
 
-import unittest
-
 import frappe
+from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, flt, getdate
 
 from hrms.hr.doctype.interview.test_interview import (
 	create_interview_and_dependencies,
 	create_skill_set,
 )
-from hrms.hr.doctype.job_applicant.test_job_applicant import create_job_applicant
+from hrms.tests.test_utils import create_job_applicant
 
 
-class TestInterviewFeedback(unittest.TestCase):
+class TestInterviewFeedback(FrappeTestCase):
 	def test_validation_for_skill_set(self):
 		frappe.set_user("Administrator")
 		job_applicant = create_job_applicant()
@@ -105,9 +104,7 @@ def create_interview_feedback(interview, interviewer, skills_ratings):
 def get_skills_rating(interview_round):
 	import random
 
-	skills = frappe.get_all(
-		"Expected Skill Set", filters={"parent": interview_round}, fields=["skill"]
-	)
+	skills = frappe.get_all("Expected Skill Set", filters={"parent": interview_round}, fields=["skill"])
 	for d in skills:
 		d["rating"] = random.random()
 	return skills
