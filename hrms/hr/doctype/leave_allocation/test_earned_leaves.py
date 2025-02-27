@@ -3,8 +3,6 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import (
 	add_days,
 	add_months,
-	date_diff,
-	flt,
 	get_first_day,
 	get_last_day,
 	get_year_ending,
@@ -139,8 +137,14 @@ class TestLeaveAllocation(FrappeTestCase):
 
 		# assignment created on the last day of the current month
 		frappe.flags.current_date = get_last_day(getdate())
-
-		leave_policy_assignments = make_policy_assignment(self.employee, assignment_based_on="Joining Date")
+		"""set end date while making assignment based on Joining date because while start date is fetched from
+		employee master, make_policy_assignment ends up taking current date as end date if not specified which
+		causes the date of assignment to be later than the end date of leave period"""
+		start_date = self.employee.date_of_joining
+		end_date = get_last_day(add_months(self.employee.date_of_joining, 12))
+		leave_policy_assignments = make_policy_assignment(
+			self.employee, assignment_based_on="Joining Date", start_date=start_date, end_date=end_date
+		)
 		leaves_allocated = get_allocated_leaves(leave_policy_assignments[0])
 		effective_from = frappe.db.get_value(
 			"Leave Policy Assignment", leave_policy_assignments[0], "effective_from"
@@ -477,6 +481,45 @@ class TestLeaveAllocation(FrappeTestCase):
 		}
 		self.assertEqual(leave_allocation, expected)
 
+	def test_allocate_leaves_manually(self):
+		frappe.flags.current_date = get_year_start(getdate())
+		lpas = make_policy_assignment(
+			self.employee,
+			allocate_on_day="First Day",
+			start_date=frappe.flags.current_date,
+		)
+
+		leave_allocation = frappe.get_last_doc(
+			"Leave Allocation", filters={"leave_policy_assignment": lpas[0]}
+		)
+		leave_allocation.allocate_leaves_manually(1)
+		leave_allocation.allocate_leaves_manually(1)
+		leave_allocation.allocate_leaves_manually(1)
+		leave_allocation.allocate_leaves_manually(1)
+		leave_allocation.allocate_leaves_manually(1)
+		self.assertEqual(
+			get_leave_balance_on(self.employee.name, self.leave_type, frappe.flags.current_date), 6
+		)
+
+		leave_allocation.allocate_leaves_manually(5)
+		self.assertEqual(
+			get_leave_balance_on(self.employee.name, self.leave_type, frappe.flags.current_date), 11
+		)
+
+		# manually set from_date - applicable from the next day
+		leave_allocation.allocate_leaves_manually(1, add_days(frappe.flags.current_date, 1))
+		# balance should be 11 on the current date
+		self.assertEqual(
+			get_leave_balance_on(self.employee.name, self.leave_type, frappe.flags.current_date), 11
+		)
+		# allocated leave should be applicable from the next day
+		self.assertEqual(
+			get_leave_balance_on(self.employee.name, self.leave_type, add_days(frappe.flags.current_date, 1)),
+			12,
+		)
+
+		self.assertRaises(frappe.ValidationError, leave_allocation.allocate_leaves_manually, 1)
+
 	def tearDown(self):
 		frappe.db.set_value("Employee", self.employee.name, "date_of_joining", self.original_doj)
 		frappe.db.set_value("Leave Type", self.leave_type, "max_leaves_allowed", 0)
@@ -526,6 +569,7 @@ def make_policy_assignment(
 	rounding=0.5,
 	earned_leave_frequency="Monthly",
 	start_date=None,
+	end_date=None,
 	annual_allocation=12,
 	carry_forward=0,
 	assignment_based_on="Leave Period",
@@ -545,6 +589,8 @@ def make_policy_assignment(
 		"leave_policy": leave_policy.name,
 		"leave_period": leave_period.name,
 		"carry_forward": carry_forward,
+		"effective_from": start_date,
+		"effective_to": end_date,
 	}
 
 	leave_policy_assignments = create_assignment_for_multiple_employees([employee.name], frappe._dict(data))

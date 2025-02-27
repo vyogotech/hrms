@@ -38,6 +38,8 @@ class LeavePolicyAssignment(Document):
 			)
 		elif self.assignment_based_on == "Joining Date":
 			self.effective_from = frappe.db.get_value("Employee", self.employee, "date_of_joining")
+			if not self.effective_to:
+				self.effective_to = get_last_day(add_months(self.effective_from, 12))
 
 	def validate_policy_assignment_overlap(self):
 		leave_policy_assignments = frappe.get_all(
@@ -132,19 +134,16 @@ class LeavePolicyAssignment(Document):
 		from frappe.model.meta import get_field_precision
 
 		precision = get_field_precision(frappe.get_meta("Leave Allocation").get_field("new_leaves_allocated"))
-
+		current_date = getdate(frappe.flags.current_date) or getdate()
 		# Earned Leaves and Compensatory Leaves are allocated by scheduler, initially allocate 0
 		if leave_details.is_compensatory:
 			new_leaves_allocated = 0
+		# if earned leave is being allcated after the effective period, then let them be calculated pro-rata
 
-		elif leave_details.is_earned_leave:
-			if not self.assignment_based_on:
-				new_leaves_allocated = 0
-			else:
-				# get leaves for past months if assignment is based on Leave Period / Joining Date
-				new_leaves_allocated = self.get_leaves_for_passed_months(
-					annual_allocation, leave_details, date_of_joining
-				)
+		elif leave_details.is_earned_leave and current_date < getdate(self.effective_to):
+			new_leaves_allocated = self.get_leaves_for_passed_months(
+				annual_allocation, leave_details, date_of_joining
+			)
 
 		else:
 			# calculate pro-rated leaves for other leave types
@@ -166,7 +165,7 @@ class LeavePolicyAssignment(Document):
 		from hrms.hr.utils import get_monthly_earned_leave
 
 		def _get_current_and_from_date():
-			current_date = frappe.flags.current_date or getdate()
+			current_date = getdate(frappe.flags.current_date) or getdate()
 			if current_date > getdate(self.effective_to):
 				current_date = getdate(self.effective_to)
 
@@ -184,7 +183,11 @@ class LeavePolicyAssignment(Document):
 					months_passed += 1
 
 			elif current_date.year > from_date.year:
-				months_passed = (12 - from_date.month) + current_date.month
+				months_passed = (
+					(12 - from_date.month)
+					+ (current_date.year - from_date.year - 1) * 12
+					+ current_date.month
+				)
 				if consider_current_month:
 					months_passed += 1
 
@@ -211,7 +214,7 @@ class LeavePolicyAssignment(Document):
 
 			period_end_date = _get_pro_rata_period_end_date(consider_current_month)
 
-			if self.effective_from < date_of_joining <= period_end_date:
+			if getdate(self.effective_from) <= date_of_joining <= period_end_date:
 				# if the employee joined within the allocation period in some previous month,
 				# calculate pro-rated leave for that month
 				# and normal monthly earned leave for remaining passed months
@@ -288,16 +291,7 @@ def create_assignment_for_multiple_employees(employees, data):
 	failed = []
 
 	for employee in employees:
-		assignment = frappe.new_doc("Leave Policy Assignment")
-		assignment.employee = employee
-		assignment.assignment_based_on = data.assignment_based_on or None
-		assignment.leave_policy = data.leave_policy
-		assignment.effective_from = getdate(data.effective_from) or None
-		assignment.effective_to = getdate(data.effective_to) or None
-		assignment.leave_period = data.leave_period or None
-		assignment.carry_forward = data.carry_forward
-		assignment.save()
-
+		assignment = create_assignment(employee, data)
 		savepoint = "before_assignment_submission"
 		try:
 			frappe.db.savepoint(savepoint)
@@ -313,6 +307,20 @@ def create_assignment_for_multiple_employees(employees, data):
 		show_assignment_submission_status(failed)
 
 	return docs_name
+
+
+@frappe.whitelist()
+def create_assignment(employee, data):
+	assignment = frappe.new_doc("Leave Policy Assignment")
+	assignment.employee = employee
+	assignment.assignment_based_on = data.assignment_based_on or None
+	assignment.leave_policy = data.leave_policy
+	assignment.effective_from = getdate(data.effective_from) or None
+	assignment.effective_to = getdate(data.effective_to) or None
+	assignment.leave_period = data.leave_period or None
+	assignment.carry_forward = data.carry_forward
+	assignment.save()
+	return assignment
 
 
 def show_assignment_submission_status(failed):

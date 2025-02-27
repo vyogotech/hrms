@@ -182,6 +182,7 @@
    "fieldtype": "Column Break"
   },
   {
+   "fetch_from": "job_title.designation",
    "fetch_if_empty": 1,
    "fieldname": "designation",
    "fieldtype": "Link",
@@ -193,7 +194,7 @@
  "idx": 1,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2023-09-14 16:50:39.316079",
+ "modified": "2025-01-16 13:06:05.312255",
  "modified_by": "Administrator",
  "module": "HR",
  "name": "Job Applicant",

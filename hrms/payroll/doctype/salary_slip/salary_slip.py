@@ -20,6 +20,7 @@ from frappe.utils import (
 	flt,
 	formatdate,
 	get_first_day,
+	get_last_day,
 	get_link_to_form,
 	getdate,
 	money_in_words,
@@ -64,8 +65,11 @@ class SalarySlip(TransactionBase):
 			"float": float,
 			"long": int,
 			"round": round,
+			"rounded": rounded,
 			"date": date,
 			"getdate": getdate,
+			"get_first_day": get_first_day,
+			"get_last_day": get_last_day,
 			"ceil": ceil,
 			"floor": floor,
 		}
@@ -478,7 +482,7 @@ class SalarySlip(TransactionBase):
 				days = 0
 				end_date = getdate(end_date)
 				for day in range(no_of_days):
-					date = add_days(self.end_date, -day)
+					date = add_days(end_date, -day)
 					if cstr(date) not in holidays:
 						days += 1
 				return days
@@ -861,10 +865,14 @@ class SalarySlip(TransactionBase):
 
 		if hasattr(self, "total_structured_tax_amount") and hasattr(self, "current_structured_tax_amount"):
 			self.future_income_tax_deductions = (
-				self.total_structured_tax_amount - self.income_tax_deducted_till_date
+				self.total_structured_tax_amount
+				+ self.get("full_tax_on_additional_earnings", 0)
+				- self.income_tax_deducted_till_date
 			)
 
-			self.current_month_income_tax = self.current_structured_tax_amount
+			self.current_month_income_tax = self.current_structured_tax_amount + self.get(
+				"full_tax_on_additional_earnings", 0
+			)
 
 			# non included current_month_income_tax separately as its already considered
 			# while calculating income_tax_deducted_till_date
@@ -878,7 +886,6 @@ class SalarySlip(TransactionBase):
 				+ self.current_structured_taxable_earnings_before_exemption
 				+ self.future_structured_taxable_earnings_before_exemption
 				+ self.current_additional_earnings
-				+ self.other_incomes
 				+ self.unclaimed_taxable_benefits
 				+ self.non_taxable_earnings
 			)
@@ -1612,7 +1619,7 @@ class SalarySlip(TransactionBase):
 
 					taxable_earnings -= flt(amount - additional_amount)
 					additional_income -= additional_amount
-					amount_exempted_from_income_tax = flt(amount - additional_amount)
+					amount_exempted_from_income_tax += flt(amount - additional_amount)
 
 					if additional_amount and ded.is_recurring_additional_salary:
 						additional_income -= self.get_future_recurring_additional_amount(
@@ -2099,7 +2106,7 @@ class SalarySlip(TransactionBase):
 		if frappe.db.get_single_value("Payroll Settings", "show_leave_balances_in_salary_slip"):
 			from hrms.hr.doctype.leave_application.leave_application import get_leave_details
 
-			leave_details = get_leave_details(self.employee, self.end_date)
+			leave_details = get_leave_details(self.employee, self.end_date, True)
 
 			for leave_type, leave_values in leave_details["leave_allocation"].items():
 				self.append(
@@ -2198,6 +2205,8 @@ def eval_tax_slab_condition(condition, eval_globals=None, eval_locals=None):
 			"round": round,
 			"date": date,
 			"getdate": getdate,
+			"get_first_day": get_first_day,
+			"get_last_day": get_last_day,
 		}
 
 	try:

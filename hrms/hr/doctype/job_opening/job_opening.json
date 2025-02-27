@@ -1,5 +1,6 @@
 {
  "actions": [],
+ "allow_guest_to_view": 1,
  "allow_import": 1,
  "autoname": "field:route",
  "creation": "2013-01-15 16:13:36",
@@ -183,10 +184,12 @@
    "read_only": 1
   }
  ],
+ "has_web_view": 1,
  "icon": "fa fa-bookmark",
  "idx": 1,
+ "is_published_field": "publish",
  "links": [],
- "modified": "2023-09-14 16:50:39.316079",
+ "modified": "2025-02-11 22:41:14.873299",
  "modified_by": "Administrator",
  "module": "HR",
  "name": "Job Opening",
@@ -203,10 +206,6 @@
    "role": "HR User",
    "share": 1,
    "write": 1
-  },
-  {
-   "read": 1,
-   "role": "Guest"
   }
  ],
  "sort_field": "modified",

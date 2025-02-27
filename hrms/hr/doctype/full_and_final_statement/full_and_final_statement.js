@@ -87,6 +87,7 @@ frappe.ui.form.on("Full and Final Outstanding Statement", {
 				args: {
 					ref_doctype: child.reference_document_type,
 					ref_document: child.reference_document,
+					company: frm.doc.company,
 				},
 				callback: function (r) {
 					if (r.message) {

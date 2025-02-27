@@ -333,6 +333,8 @@ class LeaveApplication(Document):
 			frappe.throw(_("You are not authorized to approve leaves on Block Dates"), LeaveDayBlockedError)
 
 	def validate_balance_leaves(self):
+		precision = cint(frappe.db.get_single_value("System Settings", "float_precision")) or 2
+
 		if self.from_date and self.to_date:
 			self.total_leave_days = get_number_of_leave_days(
 				self.employee,
@@ -359,9 +361,9 @@ class LeaveApplication(Document):
 					consider_all_leaves_in_the_allocation_period=True,
 					for_consumption=True,
 				)
-				self.leave_balance = leave_balance.get("leave_balance")
-				leave_balance_for_consumption = leave_balance.get("leave_balance_for_consumption")
-
+				leave_balance_for_consumption = flt(
+					leave_balance.get("leave_balance_for_consumption"), precision
+				)
 				if self.status != "Rejected" and (
 					leave_balance_for_consumption < self.total_leave_days or not leave_balance_for_consumption
 				):
@@ -579,6 +581,7 @@ class LeaveApplication(Document):
 			frappe.msgprint(_("Please set default template for Leave Status Notification in HR Settings."))
 			return
 		email_template = frappe.get_doc("Email Template", template)
+		subject = frappe.render_template(email_template.subject, args)
 		message = frappe.render_template(email_template.response_, args)
 
 		self.notify(
@@ -587,7 +590,7 @@ class LeaveApplication(Document):
 				"message": message,
 				"message_to": employee.user_id,
 				# for email
-				"subject": email_template.subject,
+				"subject": subject,
 				"notify": "employee",
 			}
 		)
@@ -604,6 +607,7 @@ class LeaveApplication(Document):
 				)
 				return
 			email_template = frappe.get_doc("Email Template", template)
+			subject = frappe.render_template(email_template.subject, args)
 			message = frappe.render_template(email_template.response_, args)
 
 			self.notify(
@@ -612,7 +616,7 @@ class LeaveApplication(Document):
 					"message": message,
 					"message_to": self.leave_approver,
 					# for email
-					"subject": email_template.subject,
+					"subject": subject,
 				}
 			)
 
@@ -825,20 +829,24 @@ def get_number_of_leave_days(
 
 
 @frappe.whitelist()
-def get_leave_details(employee, date):
+def get_leave_details(employee, date, for_salary_slip=False):
 	allocation_records = get_leave_allocation_records(employee, date)
 	leave_allocation = {}
-	precision = cint(frappe.db.get_single_value("System Settings", "float_precision", cache=True))
+	precision = cint(frappe.db.get_single_value("System Settings", "float_precision")) or 2
 
 	for d in allocation_records:
 		allocation = allocation_records.get(d, frappe._dict())
+		to_date = date if for_salary_slip else allocation.to_date
 		remaining_leaves = get_leave_balance_on(
-			employee, d, date, to_date=allocation.to_date, consider_all_leaves_in_the_allocation_period=True
+			employee,
+			d,
+			date,
+			to_date=to_date,
+			consider_all_leaves_in_the_allocation_period=False if for_salary_slip else True,
 		)
 
-		end_date = allocation.to_date
-		leaves_taken = get_leaves_for_period(employee, d, allocation.from_date, end_date) * -1
-		leaves_pending = get_leaves_pending_approval_for_period(employee, d, allocation.from_date, end_date)
+		leaves_taken = get_leaves_for_period(employee, d, allocation.from_date, to_date) * -1
+		leaves_pending = get_leaves_pending_approval_for_period(employee, d, allocation.from_date, to_date)
 		expired_leaves = allocation.total_leaves_allocated - (remaining_leaves + leaves_taken)
 
 		leave_allocation[d] = {

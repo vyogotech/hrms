@@ -5,7 +5,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt, getdate
+from frappe.utils import cint, flt, get_link_to_form, getdate
 
 
 class DuplicateAssignment(frappe.ValidationError):
@@ -47,7 +47,10 @@ class SalaryStructureAssignment(Document):
 		if not self.get("payroll_cost_centers"):
 			self.set_payroll_cost_centers()
 
-		self.validate_cost_center_distribution()
+		self.validate_cost_centers()
+
+	def on_update_after_submit(self):
+		self.validate_cost_centers()
 
 	def validate_dates(self):
 		joining_date, relieving_date = frappe.db.get_value(
@@ -90,6 +93,18 @@ class SalaryStructureAssignment(Document):
 			)
 
 	def validate_income_tax_slab(self):
+		tax_component = get_tax_component(self.salary_structure)
+		if tax_component and not self.income_tax_slab:
+			frappe.throw(
+				_(
+					"Income Tax Slab is mandatory since the Salary Structure {0} has a tax component {1}"
+				).format(
+					get_link_to_form("Salary Structure", self.salary_structure), frappe.bold(tax_component)
+				),
+				exc=frappe.MandatoryError,
+				title=_("Missing Mandatory Field"),
+			)
+
 		if not self.income_tax_slab:
 			return
 
@@ -134,11 +149,25 @@ class SalaryStructureAssignment(Document):
 
 		return payroll_cost_center
 
-	def validate_cost_center_distribution(self):
-		if self.get("payroll_cost_centers"):
-			total_percentage = sum([flt(d.percentage) for d in self.get("payroll_cost_centers", [])])
-			if total_percentage != 100:
-				frappe.throw(_("Total percentage against cost centers should be 100"))
+	def validate_cost_centers(self):
+		if not self.get("payroll_cost_centers"):
+			return
+
+		total_percentage = 0
+		for entry in self.payroll_cost_centers:
+			company = frappe.db.get_value("Cost Center", entry.cost_center, "company")
+			if company != self.company:
+				frappe.throw(
+					_("Row {0}: Cost Center {1} does not belong to Company {2}").format(
+						entry.idx, frappe.bold(entry.cost_center), frappe.bold(self.company)
+					),
+					title=_("Invalid Cost Center"),
+				)
+
+			total_percentage += flt(entry.percentage)
+
+		if total_percentage != 100:
+			frappe.throw(_("Total percentage against cost centers should be 100"))
 
 	@frappe.whitelist()
 	def earning_and_deduction_entries_does_not_exists(self):
@@ -216,3 +245,11 @@ def get_employee_currency(employee):
 			)
 		)
 	return employee_currency
+
+
+def get_tax_component(salary_structure: str) -> str | None:
+	salary_structure = frappe.get_cached_doc("Salary Structure", salary_structure)
+	for d in salary_structure.deductions:
+		if cint(d.variable_based_on_taxable_salary) and not d.formula and not flt(d.amount):
+			return d.salary_component
+	return None
